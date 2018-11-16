@@ -6,6 +6,9 @@
  * MIT Licensed
  */
 
+// support custom fs
+// Existing PR https://github.com/expressjs/serve-index/pull/67/files
+
 'use strict';
 
 /**
@@ -97,6 +100,7 @@ function serveIndex(root, options) {
   var stylesheet = opts.stylesheet || defaultStylesheet;
   var template = opts.template || defaultTemplate;
   var view = opts.view || 'tiles';
+  var filesystem = opts.fs || fs;
 
   return function (req, res, next) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -130,7 +134,7 @@ function serveIndex(root, options) {
 
     // check if we have a directory
     debug('stat "%s"', path);
-    fs.stat(path, function(err, stat){
+    filesystem.stat(path, function(err, stat){
       if (err && err.code === 'ENOENT') {
         return next();
       }
@@ -146,7 +150,7 @@ function serveIndex(root, options) {
 
       // fetch files
       debug('readdir "%s"', path);
-      fs.readdir(path, function(err, files){
+      filesystem.readdir(path, function(err, files){
         if (err) return next(err);
         if (!hidden) files = removeHidden(files);
         if (filter) files = files.filter(function(filename, index, list) {
@@ -160,7 +164,7 @@ function serveIndex(root, options) {
 
         // not acceptable
         if (!type) return next(createError(406));
-        serveIndex[mediaType[type]](req, res, files, next, originalDir, showUp, icons, path, view, template, stylesheet);
+        serveIndex[mediaType[type]](req, res, files, next, originalDir, showUp, icons, path, view, template, stylesheet, filesystem);
       });
     });
   };
@@ -170,7 +174,7 @@ function serveIndex(root, options) {
  * Respond with text/html.
  */
 
-serveIndex.html = function _html(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet) {
+serveIndex.html = function _html(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet, filesystem) {
   var render = typeof template !== 'function'
     ? createHtmlRender(template)
     : template
@@ -180,7 +184,7 @@ serveIndex.html = function _html(req, res, files, next, dir, showUp, icons, path
   }
 
   // stat all files
-  stat(path, files, function (err, stats) {
+  statFiles(path, files, filesystem, function (err, stats) {
     if (err) return next(err);
 
     // combine the stats into the file list
@@ -269,7 +273,7 @@ function createHtmlFileList(files, dir, useIcons, view) {
 
     path.push(encodeURIComponent(file.name));
 
-    var date = file.stat && file.name !== '..'
+    var date = file.stat && file.stat.mtime && file.name !== '..'
       ? file.stat.mtime.toLocaleDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
       : '';
     var size = file.stat && !isDir
@@ -511,14 +515,14 @@ function send (res, type, body) {
  * in same order.
  */
 
-function stat(dir, files, cb) {
+function statFiles(dir, files, filesystem, cb) {
   var batch = new Batch();
 
   batch.concurrency(10);
 
   files.forEach(function(file){
     batch.push(function(done){
-      fs.stat(join(dir, file), function(err, stat){
+      filesystem.stat(join(dir, file), function(err, stat){
         if (err && err.code !== 'ENOENT') return done(err);
 
         // pass ENOENT as null stat, not error

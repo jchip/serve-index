@@ -1,5 +1,5 @@
 {
-  "name": "serve-index",
+  "name": "serve-index-fs",
   "description": "Serve directory listings",
   "version": "1.9.1",
   "author": "Douglas Christopher Wilson <doug@somethingdoug.com>",
