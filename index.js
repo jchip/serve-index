@@ -20,16 +20,12 @@ var accepts = require('accepts');
 var createError = require('http-errors');
 var debug = require('debug')('serve-index');
 var escapeHtml = require('escape-html');
-var fs = require('fs')
-  , path = require('path')
-  , normalize = path.normalize
-  , sep = path.sep
-  , extname = path.extname
-  , join = path.join;
+var fs = require('fs');
 var Batch = require('batch');
 var mime = require('mime-types');
 var parseUrl = require('parseurl');
-var resolve = require('path').resolve;
+var nativePathLib = require('path');
+
 
 /**
  * Module exports.
@@ -44,17 +40,6 @@ module.exports = serveIndex;
 
 var cache = {};
 
-/*!
- * Default template.
- */
-
-var defaultTemplate = join(__dirname, 'public', 'directory.html');
-
-/*!
- * Stylesheet.
- */
-
-var defaultStylesheet = join(__dirname, 'public', 'style.css');
 
 /**
  * Media types and the map for content negotiation.
@@ -90,6 +75,18 @@ function serveIndex(root, options) {
   if (!root) {
     throw new TypeError('serveIndex() root path required');
   }
+
+  serveIndex.pathLib = options.path || nativePathLib;
+  var normalize = serveIndex.pathLib.normalize
+  , sep = serveIndex.pathLib.sep
+  , join = serveIndex.pathLib.join
+  , resolve = serveIndex.pathLib.resolve;
+
+  // default Stylesheet
+  var defaultStylesheet = join(__dirname, 'public', 'style.css');
+  // default Template
+  var defaultTemplate = join(__dirname, 'public', 'directory.html');
+  
 
   // resolve root to absolute and normalize
   var rootPath = normalize(resolve(root) + sep);
@@ -240,6 +237,8 @@ serveIndex.plain = function _plain(req, res, files) {
  */
 
 function createHtmlFileList(files, dir, useIcons, view) {
+  var extname = serveIndex.pathLib.extname;
+  var normalize = serveIndex.pathLib.normalize;
   var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
     + (view === 'details' ? (
       '<li class="header">'
@@ -356,6 +355,7 @@ function htmlPath(dir) {
  */
 
 function iconLookup(filename) {
+  var extname = serveIndex.pathLib.extname;
   var ext = extname(filename);
 
   // try by extension
@@ -475,6 +475,7 @@ function load(icon) {
  */
 
 function normalizeSlashes(path) {
+  var sep = serveIndex.pathLib.sep;
   return path.split(sep).join('/');
 };
 
@@ -517,6 +518,7 @@ function send (res, type, body) {
 
 function statFiles(dir, files, filesystem, cb) {
   var batch = new Batch();
+  var join = serveIndex.pathLib.join;
 
   batch.concurrency(10);
 
