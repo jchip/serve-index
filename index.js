@@ -82,10 +82,6 @@ function serveIndex(root, options) {
   , sep = pathLib.sep
   , join = pathLib.join
   , resolve = pathLib.resolve;
-  console.log('opts.path: ', opts.path);
-  console.log('pathLib: ', pathLib);
-  console.log('sep--1: ', sep);
-  debugger;
 
   // default Stylesheet
   var defaultStylesheet = join(__dirname, 'public', 'style.css');
@@ -107,7 +103,6 @@ function serveIndex(root, options) {
   /**
    * Respond with text/html.
    */
-  //serveIndex.html = function _html(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
   function html(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
     var render = typeof template !== 'function'
       ? createHtmlRender(template)
@@ -117,9 +112,6 @@ function serveIndex(root, options) {
       files.unshift('..');
     }
 
-    console.log('pathLib--4 ', pathLib, ' | dir: ', dir);
-    console.log('sep--4: ', sep, ' | path: ', path);
-  
     // stat all files
     statFiles(path, files, filesystem, function (err, stats) {
       if (err) return next(err);
@@ -158,7 +150,6 @@ function serveIndex(root, options) {
   /**
    * Respond with application/json.
    */
-  //serveIndex.json = function _json(req, res, files) {
   function json(req, res, files) {
     send(res, 'application/json', JSON.stringify(files))
   };
@@ -166,7 +157,6 @@ function serveIndex(root, options) {
   /**
    * Respond with text/plain.
    */
-  //serveIndex.plain = function _plain(req, res, files) {
   function plain(req, res, files) {
     send(res, 'text/plain', (files.join('\n') + '\n'))
   };
@@ -447,10 +437,6 @@ function serveIndex(root, options) {
    */
   function statFiles(dir, files, filesystem, cb) {
     var batch = new Batch();
-    //var join = serveIndex.pathLib.join;
-    console.log('pathLib--2 ', pathLib);
-    console.log('sep--2: ', sep);
-
     batch.concurrency(10);
 
     files.forEach(function(file){
@@ -493,8 +479,6 @@ function serveIndex(root, options) {
       debug('malicious path "%s"', path);
       return next(createError(403));
     }
-    console.log('pathLib--3 ', pathLib, ' | rootp: ', rootPath);
-    console.log('sep--3: ', sep, ' | path: ', path);
 
     // determine ".." display
     var showUp = normalize(resolve(path) + sep) !== rootPath;
@@ -531,7 +515,7 @@ function serveIndex(root, options) {
 
         // not acceptable
         if (!type) return next(createError(406));
-        //serveIndex[mediaType[type]](req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
+        // find the relevant media-type to send the response
         var serveIndexMediaType = html;
         if (mediaType[type] === 'json')  {
           serveIndexMediaType =   json;
