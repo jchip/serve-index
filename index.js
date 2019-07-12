@@ -76,11 +76,12 @@ function serveIndex(root, options) {
     throw new TypeError('serveIndex() root path required');
   }
 
-  serveIndex.pathLib = options.path || nativePathLib;
-  var normalize = serveIndex.pathLib.normalize
-  , sep = serveIndex.pathLib.sep
-  , join = serveIndex.pathLib.join
-  , resolve = serveIndex.pathLib.resolve;
+  var pathLib = options.path || nativePathLib;
+  var normalize = pathLib.normalize
+  , extname = pathLib.extname
+  , sep = pathLib.sep
+  , join = pathLib.join
+  , resolve = pathLib.resolve;
 
   // default Stylesheet
   var defaultStylesheet = join(__dirname, 'public', 'style.css');
@@ -93,11 +94,367 @@ function serveIndex(root, options) {
 
   var filter = opts.filter;
   var hidden = opts.hidden;
-  var icons = opts.icons;
+  var showIcons = opts.icons;
   var stylesheet = opts.stylesheet || defaultStylesheet;
   var template = opts.template || defaultTemplate;
   var view = opts.view || 'tiles';
   var filesystem = opts.fs || fs;
+
+  /**
+   * Respond with text/html.
+   */
+  serveIndex.html = function _html(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
+    var render = typeof template !== 'function'
+      ? createHtmlRender(template)
+      : template
+
+    if (showUp) {
+      files.unshift('..');
+    }
+
+    // stat all files
+    statFiles(path, files, filesystem, function (err, stats) {
+      if (err) return next(err);
+
+      // combine the stats into the file list
+      var fileList = files.map(function (file, i) {
+        return { name: file, stat: stats[i] };
+      });
+
+      // sort file list
+      fileList.sort(fileSort);
+
+      // read stylesheet
+      fs.readFile(stylesheet, 'utf8', function (err, style) {
+        if (err) return next(err);
+
+        // create locals for rendering
+        var locals = {
+          directory: dir,
+          displayIcons: Boolean(displayIcons),
+          fileList: fileList,
+          path: path,
+          style: style,
+          viewName: view
+        };
+
+        // render html
+        render(locals, function (err, body) {
+          if (err) return next(err);
+          send(res, 'text/html', body)
+        });
+      });
+    });
+  };
+
+  /**
+   * Respond with application/json.
+   */
+  serveIndex.json = function _json(req, res, files) {
+    send(res, 'application/json', JSON.stringify(files))
+  };
+
+  /**
+   * Respond with text/plain.
+   */
+  serveIndex.plain = function _plain(req, res, files) {
+    send(res, 'text/plain', (files.join('\n') + '\n'))
+  };
+
+  /**
+   * Map html `files`, returning an html unordered list.
+   * @private
+   */
+  function createHtmlFileList(files, dir, useIcons, view) {
+    //var extname = serveIndex.pathLib.extname;
+    //var normalize = serveIndex.pathLib.normalize;
+    var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
+      + (view === 'details' ? (
+        '<li class="header">'
+        + '<span class="name">Name</span>'
+        + '<span class="size">Size</span>'
+        + '<span class="date">Modified</span>'
+        + '</li>') : '');
+
+    html += files.map(function (file) {
+      var classes = [];
+      var isDir = file.stat && file.stat.isDirectory();
+      var path = dir.split('/').map(function (c) { return encodeURIComponent(c); });
+
+      if (useIcons) {
+        classes.push('icon');
+
+        if (isDir) {
+          classes.push('icon-directory');
+        } else {
+          var ext = extname(file.name);
+          var icon = iconLookup(file.name);
+
+          classes.push('icon');
+          classes.push('icon-' + ext.substring(1));
+
+          if (classes.indexOf(icon.className) === -1) {
+            classes.push(icon.className);
+          }
+        }
+      }
+
+      path.push(encodeURIComponent(file.name));
+
+      var date = file.stat && file.stat.mtime && file.name !== '..'
+        ? file.stat.mtime.toLocaleDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
+        : '';
+      var size = file.stat && !isDir
+        ? file.stat.size
+        : '';
+
+      return '<li><a href="'
+        + escapeHtml(normalizeSlashes(normalize(path.join('/'))))
+        + '" class="' + escapeHtml(classes.join(' ')) + '"'
+        + ' title="' + escapeHtml(file.name) + '">'
+        + '<span class="name">' + escapeHtml(file.name) + '</span>'
+        + '<span class="size">' + escapeHtml(size) + '</span>'
+        + '<span class="date">' + escapeHtml(date) + '</span>'
+        + '</a></li>';
+    }).join('\n');
+
+    html += '</ul>';
+
+    return html;
+  }
+
+  /**
+   * Create function to render html.
+   */
+  function createHtmlRender(template) {
+    return function render(locals, callback) {
+      // read template
+      fs.readFile(template, 'utf8', function (err, str) {
+        if (err) return callback(err);
+
+        var body = str
+          .replace(/\{style\}/g, locals.style.concat(iconStyle(locals.fileList, locals.displayIcons)))
+          .replace(/\{files\}/g, createHtmlFileList(locals.fileList, locals.directory, locals.displayIcons, locals.viewName))
+          .replace(/\{directory\}/g, escapeHtml(locals.directory))
+          .replace(/\{linked-path\}/g, htmlPath(locals.directory));
+
+        callback(null, body);
+      });
+    };
+  }
+
+  /**
+   * Sort function for with directories first.
+   */
+  function fileSort(a, b) {
+    // sort ".." to the top
+    if (a.name === '..' || b.name === '..') {
+      return a.name === b.name ? 0
+        : a.name === '..' ? -1 : 1;
+    }
+
+    return Number(b.stat && b.stat.isDirectory()) - Number(a.stat && a.stat.isDirectory()) ||
+      String(a.name).toLocaleLowerCase().localeCompare(String(b.name).toLocaleLowerCase());
+  }
+
+  /**
+   * Map html `dir`, returning a linked path.
+   */
+  function htmlPath(dir) {
+    var parts = dir.split('/');
+    var crumb = new Array(parts.length);
+
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i];
+
+      if (part) {
+        parts[i] = encodeURIComponent(part);
+        crumb[i] = '<a href="' + escapeHtml(parts.slice(0, i + 1).join('/')) + '">' + escapeHtml(part) + '</a>';
+      }
+    }
+
+    return crumb.join(' / ');
+  }
+
+  /**
+   * Get the icon data for the file name.
+   */
+  function iconLookup(filename) {
+    //var extname = serveIndex.pathLib.extname;
+    var ext = extname(filename);
+
+    // try by extension
+    if (icons[ext]) {
+      return {
+        className: 'icon-' + ext.substring(1),
+        fileName: icons[ext]
+      };
+    }
+
+    var mimetype = mime.lookup(ext);
+
+    // default if no mime type
+    if (mimetype === false) {
+      return {
+        className: 'icon-default',
+        fileName: icons.default
+      };
+    }
+
+    // try by mime type
+    if (icons[mimetype]) {
+      return {
+        className: 'icon-' + mimetype.replace('/', '-'),
+        fileName: icons[mimetype]
+      };
+    }
+
+    var suffix = mimetype.split('+')[1];
+
+    if (suffix && icons['+' + suffix]) {
+      return {
+        className: 'icon-' + suffix,
+        fileName: icons['+' + suffix]
+      };
+    }
+
+    var type = mimetype.split('/')[0];
+
+    // try by type only
+    if (icons[type]) {
+      return {
+        className: 'icon-' + type,
+        fileName: icons[type]
+      };
+    }
+
+    return {
+      className: 'icon-default',
+      fileName: icons.default
+    };
+  }
+
+  /**
+   * Load icon images, return css string.
+   */
+  function iconStyle(files, useIcons) {
+    if (!useIcons) return '';
+    var i;
+    var list = [];
+    var rules = {};
+    var selector;
+    var selectors = {};
+    var style = '';
+console.log('--icons--', icons);
+
+    for (i = 0; i < files.length; i++) {
+      var file = files[i];
+
+      var isDir = file.stat && file.stat.isDirectory();
+      var icon = isDir
+        ? { className: 'icon-directory', fileName: icons.folder }
+        : iconLookup(file.name);
+      var iconName = icon.fileName;
+
+      selector = '#files .' + icon.className + ' .name';
+
+      if (!rules[iconName]) {
+        rules[iconName] = 'background-image: url(data:image/png;base64,' + load(iconName) + ');'
+        selectors[iconName] = [];
+        list.push(iconName);
+      }
+
+      if (selectors[iconName].indexOf(selector) === -1) {
+        selectors[iconName].push(selector);
+      }
+    }
+
+    for (i = 0; i < list.length; i++) {
+      iconName = list[i];
+      style += selectors[iconName].join(',\n') + ' {\n  ' + rules[iconName] + '\n}\n';
+    }
+
+    return style;
+  }
+
+  /**
+   * Load and cache the given `icon`.
+   *
+   * @param {String} icon
+   * @return {String}
+   * @api private
+   */
+  function load(icon) {
+    if (cache[icon]) return cache[icon];
+    return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
+  }
+
+  /**
+   * Normalizes the path separator from system separator
+   * to URL separator, aka `/`.
+   *
+   * @param {String} path
+   * @return {String}
+   * @api private
+   */
+  function normalizeSlashes(path) {
+    //var sep = serveIndex.pathLib.sep;
+    return path.split(sep).join('/');
+  };
+
+  /**
+   * Filter "hidden" `files`, aka files
+   * beginning with a `.`.
+   *
+   * @param {Array} files
+   * @return {Array}
+   * @api private
+   */
+  function removeHidden(files) {
+    return files.filter(function(file){
+      return file[0] !== '.'
+    });
+  }
+
+  /**
+   * Send a response.
+   * @private
+   */
+  function send (res, type, body) {
+    // security header for content sniffing
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+
+    // standard headers
+    res.setHeader('Content-Type', type + '; charset=utf-8')
+    res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'))
+
+    // body
+    res.end(body, 'utf8')
+  }
+
+  /**
+   * Stat all files and return array of stat
+   * in same order.
+   */
+  function statFiles(dir, files, filesystem, cb) {
+    var batch = new Batch();
+    //var join = serveIndex.pathLib.join;
+
+    batch.concurrency(10);
+
+    files.forEach(function(file){
+      batch.push(function(done){
+        filesystem.stat(join(dir, file), function(err, stat){
+          if (err && err.code !== 'ENOENT') return done(err);
+
+          // pass ENOENT as null stat, not error
+          done(null, stat || null);
+        });
+      });
+    });
+
+    batch.end(cb);
+  }
 
   return function (req, res, next) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -161,385 +518,15 @@ function serveIndex(root, options) {
 
         // not acceptable
         if (!type) return next(createError(406));
-        serveIndex[mediaType[type]](req, res, files, next, originalDir, showUp, icons, path, view, template, stylesheet, filesystem);
+        serveIndex[mediaType[type]](req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
       });
     });
   };
 };
-
-/**
- * Respond with text/html.
- */
-
-serveIndex.html = function _html(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet, filesystem) {
-  var render = typeof template !== 'function'
-    ? createHtmlRender(template)
-    : template
-
-  if (showUp) {
-    files.unshift('..');
-  }
-
-  // stat all files
-  statFiles(path, files, filesystem, function (err, stats) {
-    if (err) return next(err);
-
-    // combine the stats into the file list
-    var fileList = files.map(function (file, i) {
-      return { name: file, stat: stats[i] };
-    });
-
-    // sort file list
-    fileList.sort(fileSort);
-
-    // read stylesheet
-    fs.readFile(stylesheet, 'utf8', function (err, style) {
-      if (err) return next(err);
-
-      // create locals for rendering
-      var locals = {
-        directory: dir,
-        displayIcons: Boolean(icons),
-        fileList: fileList,
-        path: path,
-        style: style,
-        viewName: view
-      };
-
-      // render html
-      render(locals, function (err, body) {
-        if (err) return next(err);
-        send(res, 'text/html', body)
-      });
-    });
-  });
-};
-
-/**
- * Respond with application/json.
- */
-
-serveIndex.json = function _json(req, res, files) {
-  send(res, 'application/json', JSON.stringify(files))
-};
-
-/**
- * Respond with text/plain.
- */
-
-serveIndex.plain = function _plain(req, res, files) {
-  send(res, 'text/plain', (files.join('\n') + '\n'))
-};
-
-/**
- * Map html `files`, returning an html unordered list.
- * @private
- */
-
-function createHtmlFileList(files, dir, useIcons, view) {
-  var extname = serveIndex.pathLib.extname;
-  var normalize = serveIndex.pathLib.normalize;
-  var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
-    + (view === 'details' ? (
-      '<li class="header">'
-      + '<span class="name">Name</span>'
-      + '<span class="size">Size</span>'
-      + '<span class="date">Modified</span>'
-      + '</li>') : '');
-
-  html += files.map(function (file) {
-    var classes = [];
-    var isDir = file.stat && file.stat.isDirectory();
-    var path = dir.split('/').map(function (c) { return encodeURIComponent(c); });
-
-    if (useIcons) {
-      classes.push('icon');
-
-      if (isDir) {
-        classes.push('icon-directory');
-      } else {
-        var ext = extname(file.name);
-        var icon = iconLookup(file.name);
-
-        classes.push('icon');
-        classes.push('icon-' + ext.substring(1));
-
-        if (classes.indexOf(icon.className) === -1) {
-          classes.push(icon.className);
-        }
-      }
-    }
-
-    path.push(encodeURIComponent(file.name));
-
-    var date = file.stat && file.stat.mtime && file.name !== '..'
-      ? file.stat.mtime.toLocaleDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
-      : '';
-    var size = file.stat && !isDir
-      ? file.stat.size
-      : '';
-
-    return '<li><a href="'
-      + escapeHtml(normalizeSlashes(normalize(path.join('/'))))
-      + '" class="' + escapeHtml(classes.join(' ')) + '"'
-      + ' title="' + escapeHtml(file.name) + '">'
-      + '<span class="name">' + escapeHtml(file.name) + '</span>'
-      + '<span class="size">' + escapeHtml(size) + '</span>'
-      + '<span class="date">' + escapeHtml(date) + '</span>'
-      + '</a></li>';
-  }).join('\n');
-
-  html += '</ul>';
-
-  return html;
-}
-
-/**
- * Create function to render html.
- */
-
-function createHtmlRender(template) {
-  return function render(locals, callback) {
-    // read template
-    fs.readFile(template, 'utf8', function (err, str) {
-      if (err) return callback(err);
-
-      var body = str
-        .replace(/\{style\}/g, locals.style.concat(iconStyle(locals.fileList, locals.displayIcons)))
-        .replace(/\{files\}/g, createHtmlFileList(locals.fileList, locals.directory, locals.displayIcons, locals.viewName))
-        .replace(/\{directory\}/g, escapeHtml(locals.directory))
-        .replace(/\{linked-path\}/g, htmlPath(locals.directory));
-
-      callback(null, body);
-    });
-  };
-}
-
-/**
- * Sort function for with directories first.
- */
-
-function fileSort(a, b) {
-  // sort ".." to the top
-  if (a.name === '..' || b.name === '..') {
-    return a.name === b.name ? 0
-      : a.name === '..' ? -1 : 1;
-  }
-
-  return Number(b.stat && b.stat.isDirectory()) - Number(a.stat && a.stat.isDirectory()) ||
-    String(a.name).toLocaleLowerCase().localeCompare(String(b.name).toLocaleLowerCase());
-}
-
-/**
- * Map html `dir`, returning a linked path.
- */
-
-function htmlPath(dir) {
-  var parts = dir.split('/');
-  var crumb = new Array(parts.length);
-
-  for (var i = 0; i < parts.length; i++) {
-    var part = parts[i];
-
-    if (part) {
-      parts[i] = encodeURIComponent(part);
-      crumb[i] = '<a href="' + escapeHtml(parts.slice(0, i + 1).join('/')) + '">' + escapeHtml(part) + '</a>';
-    }
-  }
-
-  return crumb.join(' / ');
-}
-
-/**
- * Get the icon data for the file name.
- */
-
-function iconLookup(filename) {
-  var extname = serveIndex.pathLib.extname;
-  var ext = extname(filename);
-
-  // try by extension
-  if (icons[ext]) {
-    return {
-      className: 'icon-' + ext.substring(1),
-      fileName: icons[ext]
-    };
-  }
-
-  var mimetype = mime.lookup(ext);
-
-  // default if no mime type
-  if (mimetype === false) {
-    return {
-      className: 'icon-default',
-      fileName: icons.default
-    };
-  }
-
-  // try by mime type
-  if (icons[mimetype]) {
-    return {
-      className: 'icon-' + mimetype.replace('/', '-'),
-      fileName: icons[mimetype]
-    };
-  }
-
-  var suffix = mimetype.split('+')[1];
-
-  if (suffix && icons['+' + suffix]) {
-    return {
-      className: 'icon-' + suffix,
-      fileName: icons['+' + suffix]
-    };
-  }
-
-  var type = mimetype.split('/')[0];
-
-  // try by type only
-  if (icons[type]) {
-    return {
-      className: 'icon-' + type,
-      fileName: icons[type]
-    };
-  }
-
-  return {
-    className: 'icon-default',
-    fileName: icons.default
-  };
-}
-
-/**
- * Load icon images, return css string.
- */
-
-function iconStyle(files, useIcons) {
-  if (!useIcons) return '';
-  var i;
-  var list = [];
-  var rules = {};
-  var selector;
-  var selectors = {};
-  var style = '';
-
-  for (i = 0; i < files.length; i++) {
-    var file = files[i];
-
-    var isDir = file.stat && file.stat.isDirectory();
-    var icon = isDir
-      ? { className: 'icon-directory', fileName: icons.folder }
-      : iconLookup(file.name);
-    var iconName = icon.fileName;
-
-    selector = '#files .' + icon.className + ' .name';
-
-    if (!rules[iconName]) {
-      rules[iconName] = 'background-image: url(data:image/png;base64,' + load(iconName) + ');'
-      selectors[iconName] = [];
-      list.push(iconName);
-    }
-
-    if (selectors[iconName].indexOf(selector) === -1) {
-      selectors[iconName].push(selector);
-    }
-  }
-
-  for (i = 0; i < list.length; i++) {
-    iconName = list[i];
-    style += selectors[iconName].join(',\n') + ' {\n  ' + rules[iconName] + '\n}\n';
-  }
-
-  return style;
-}
-
-/**
- * Load and cache the given `icon`.
- *
- * @param {String} icon
- * @return {String}
- * @api private
- */
-
-function load(icon) {
-  if (cache[icon]) return cache[icon];
-  return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
-}
-
-/**
- * Normalizes the path separator from system separator
- * to URL separator, aka `/`.
- *
- * @param {String} path
- * @return {String}
- * @api private
- */
-
-function normalizeSlashes(path) {
-  var sep = serveIndex.pathLib.sep;
-  return path.split(sep).join('/');
-};
-
-/**
- * Filter "hidden" `files`, aka files
- * beginning with a `.`.
- *
- * @param {Array} files
- * @return {Array}
- * @api private
- */
-
-function removeHidden(files) {
-  return files.filter(function(file){
-    return file[0] !== '.'
-  });
-}
-
-/**
- * Send a response.
- * @private
- */
-
-function send (res, type, body) {
-  // security header for content sniffing
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-
-  // standard headers
-  res.setHeader('Content-Type', type + '; charset=utf-8')
-  res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'))
-
-  // body
-  res.end(body, 'utf8')
-}
-
-/**
- * Stat all files and return array of stat
- * in same order.
- */
-
-function statFiles(dir, files, filesystem, cb) {
-  var batch = new Batch();
-  var join = serveIndex.pathLib.join;
-
-  batch.concurrency(10);
-
-  files.forEach(function(file){
-    batch.push(function(done){
-      filesystem.stat(join(dir, file), function(err, stat){
-        if (err && err.code !== 'ENOENT') return done(err);
-
-        // pass ENOENT as null stat, not error
-        done(null, stat || null);
-      });
-    });
-  });
-
-  batch.end(cb);
-}
 
 /**
  * Icon map.
  */
-
 var icons = {
   // base icons
   'default': 'page_white.png',
