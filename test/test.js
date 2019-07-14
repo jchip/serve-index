@@ -485,15 +485,15 @@ describe('serveIndex(root)', function () {
 
   describe('when using custom handler', function () {
     describe('exports.html', function () {
-      alterProperty(serveIndex, 'html', serveIndex.html)
-
       it('should get called with Accept: text/html', function (done) {
-        var server = createServer()
+        var options = {
+          responseHandler: function html(req, res, files) {
+            res.setHeader('Content-Type', 'text/html');
+            res.end('called');
+          }
+        };
 
-        serveIndex.html = function (req, res, files) {
-          res.setHeader('Content-Type', 'text/html');
-          res.end('called');
-        }
+        var server = createServer(null, options)
 
         request(server)
         .get('/')
@@ -502,15 +502,17 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get file list', function (done) {
-        var server = createServer()
-
-        serveIndex.html = function (req, res, files) {
-          var text = files
+        var options = {
+          responseHandler: function html(req, res, files) {
+            var text = files
             .filter(function (f) { return /\.txt$/.test(f) })
             .sort()
           res.setHeader('Content-Type', 'text/html')
           res.end('<b>' + text.length + ' text files</b>')
-        }
+          }
+        };
+
+        var server = createServer(null, options);
 
         request(server)
         .get('/')
@@ -519,12 +521,14 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get dir name', function (done) {
-        var server = createServer()
+        var options = {
+          responseHandler: function html(req, res, files, next, dir) {
+            res.setHeader('Content-Type', 'text/html')
+            res.end('<b>' + dir + '</b>')
+          }
+        };
 
-        serveIndex.html = function (req, res, files, next, dir) {
-          res.setHeader('Content-Type', 'text/html')
-          res.end('<b>' + dir + '</b>')
-        }
+        var server = createServer(null, options)
 
         request(server)
         .get('/users/')
@@ -533,12 +537,14 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get template path', function (done) {
-        var server = createServer()
-
-        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template) {
-          res.setHeader('Content-Type', 'text/html')
-          res.end(String(fs.existsSync(template)))
-        }
+        var options = {
+          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template) {
+            res.setHeader('Content-Type', 'text/html')
+            res.end(String(fs.existsSync(template)))
+          }
+        };
+    
+        var server = createServer(null, options)
 
         request(server)
         .get('/users/')
@@ -547,12 +553,14 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get template with tokens', function (done) {
-        var server = createServer()
-
-        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template) {
-          res.setHeader('Content-Type', 'text/html')
-          res.end(fs.readFileSync(template, 'utf8'))
-        }
+        var options = {
+          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template) {
+            res.setHeader('Content-Type', 'text/html')
+            res.end(fs.readFileSync(template, 'utf8'))
+            }
+        };
+      
+        var server = createServer(null, options)
 
         request(server)
         .get('/users/')
@@ -565,12 +573,14 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get stylesheet path', function (done) {
-        var server = createServer()
-
-        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template, stylesheet) {
-          res.setHeader('Content-Type', 'text/html')
-          res.end(String(fs.existsSync(stylesheet)))
-        }
+        var options = {
+          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet) {
+            res.setHeader('Content-Type', 'text/html')
+            res.end(String(fs.existsSync(stylesheet)))
+          }
+        };
+      
+        var server = createServer(null, options)
 
         request(server)
         .get('/users/')
@@ -580,15 +590,15 @@ describe('serveIndex(root)', function () {
     });
 
     describe('exports.plain', function () {
-      alterProperty(serveIndex, 'plain', serveIndex.plain)
-
       it('should get called with Accept: text/plain', function (done) {
-        var server = createServer()
-
-        serveIndex.plain = function (req, res, files) {
-          res.setHeader('Content-Type', 'text/plain');
-          res.end('called');
-        }
+        var options = {
+          responseHandler: function html(req, res, files) {
+            res.setHeader('Content-Type', 'text/plain');
+            res.end('called');
+          }
+        };
+      
+        var server = createServer(null, options)
 
         request(server)
         .get('/')
@@ -598,16 +608,16 @@ describe('serveIndex(root)', function () {
     });
 
     describe('exports.json', function () {
-      alterProperty(serveIndex, 'json', serveIndex.json)
-
       it('should get called with Accept: application/json', function (done) {
-        var server = createServer()
-
-        serveIndex.json = function (req, res, files) {
-          res.setHeader('Content-Type', 'application/json');
-          res.end('"called"');
-        }
-
+        var options = {
+          responseHandler: function html(req, res, files) {
+            res.setHeader('Content-Type', 'application/json');
+            res.end('"called"');
+          }
+        };
+      
+        var server = createServer(null, options)
+      
         request(server)
         .get('/')
         .set('Accept', 'application/json')
@@ -762,18 +772,6 @@ describe('serveIndex(root)', function () {
     });
   });
 });
-
-function alterProperty(obj, prop, val) {
-  var prev
-
-  beforeEach(function () {
-    prev = obj[prop]
-    obj[prop] = val
-  })
-  afterEach(function () {
-    obj[prop] = prev
-  })
-}
 
 function createServer(dir, opts) {
   dir = dir || fixtures

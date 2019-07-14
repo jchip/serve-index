@@ -99,6 +99,7 @@ function serveIndex(root, options) {
   var template = opts.template || defaultTemplate;
   var view = opts.view || 'tiles';
   var filesystem = opts.fs || fs;
+  var responseHandler = opts.responseHandler || null;
 
   /**
    * Respond with text/html.
@@ -453,6 +454,20 @@ function serveIndex(root, options) {
     batch.end(cb);
   }
 
+  function getResponseHandler(type) {
+    var serveIndexMediaType = responseHandler;
+    if (!serveIndexMediaType) {
+      if (mediaType[type] === 'json')  {
+        serveIndexMediaType =   json;
+      } else if (mediaType[type] === 'plain') {
+        serveIndexMediaType = plain;
+      } else {
+        serveIndexMediaType = html;
+      }
+    }
+    return serveIndexMediaType
+  }
+
   return function (req, res, next) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
@@ -516,13 +531,8 @@ function serveIndex(root, options) {
         // not acceptable
         if (!type) return next(createError(406));
         // find the relevant media-type to send the response
-        var serveIndexMediaType = html;
-        if (mediaType[type] === 'json')  {
-          serveIndexMediaType =   json;
-        } else if (mediaType[type] === 'plain') {
-          serveIndexMediaType = plain;
-        }
-        serveIndexMediaType(req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
+        var respHandler = getResponseHandler(type);
+        respHandler(req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
       });
     });
   };
