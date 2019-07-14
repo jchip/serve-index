@@ -507,8 +507,8 @@ describe('serveIndex(root)', function () {
             var text = files
             .filter(function (f) { return /\.txt$/.test(f) })
             .sort()
-          res.setHeader('Content-Type', 'text/html')
-          res.end('<b>' + text.length + ' text files</b>')
+            res.setHeader('Content-Type', 'text/html')
+            res.end('<b>' + text.length + ' text files</b>')
           }
         };
 
@@ -543,7 +543,7 @@ describe('serveIndex(root)', function () {
             res.end(String(fs.existsSync(template)))
           }
         };
-    
+
         var server = createServer(null, options)
 
         request(server)
@@ -557,9 +557,9 @@ describe('serveIndex(root)', function () {
           responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template) {
             res.setHeader('Content-Type', 'text/html')
             res.end(fs.readFileSync(template, 'utf8'))
-            }
+          }
         };
-      
+
         var server = createServer(null, options)
 
         request(server)
@@ -579,7 +579,7 @@ describe('serveIndex(root)', function () {
             res.end(String(fs.existsSync(stylesheet)))
           }
         };
-      
+
         var server = createServer(null, options)
 
         request(server)
@@ -597,7 +597,7 @@ describe('serveIndex(root)', function () {
             res.end('called');
           }
         };
-      
+
         var server = createServer(null, options)
 
         request(server)
@@ -615,9 +615,9 @@ describe('serveIndex(root)', function () {
             res.end('"called"');
           }
         };
-      
+
         var server = createServer(null, options)
-      
+
         request(server)
         .get('/')
         .set('Accept', 'application/json')

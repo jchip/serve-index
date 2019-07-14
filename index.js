@@ -87,7 +87,7 @@ function serveIndex(root, options) {
   var defaultStylesheet = join(__dirname, 'public', 'style.css');
   // default Template
   var defaultTemplate = join(__dirname, 'public', 'directory.html');
-  
+
 
   // resolve root to absolute and normalize
   var rootPath = normalize(resolve(root) + sep);
