@@ -93,7 +93,7 @@ describe('serveIndex(root)', function () {
   })
 
   it('should treat an ENAMETOOLONG as a 414', function (done) {
-    var path = Array(11000).join('foobar')
+    var path = Array(1100).join('foobar')
     var server = createServer()
 
     request(server)
