@@ -99,7 +99,6 @@ function serveIndex(root, options) {
   var template = opts.template || defaultTemplate;
   var view = opts.view || 'tiles';
   var filesystem = opts.fs || fs;
-  var responseHandler = opts.responseHandler || null;
 
   /**
    * Respond with text/html.
@@ -455,11 +454,13 @@ function serveIndex(root, options) {
   }
 
   function getResponseHandler(type) {
-    var serveIndexMediaType = responseHandler;
-    if (!serveIndexMediaType) {
-      if (mediaType[type] === 'json')  {
+    var media = mediaType[type];
+    var serveIndexMediaType = serveIndex[media];
+
+    if (typeof serveIndexMediaType !== 'function') {
+      if (media === 'json')  {
         serveIndexMediaType =   json;
-      } else if (mediaType[type] === 'plain') {
+      } else if (media === 'plain') {
         serveIndexMediaType = plain;
       } else {
         serveIndexMediaType = html;
@@ -537,6 +538,12 @@ function serveIndex(root, options) {
     });
   };
 };
+
+// custom response handlers
+//  to be overridden when needed
+serveIndex.html = null;
+serveIndex.plain = null;
+serveIndex.json = null;
 
 /**
  * Icon map.

@@ -485,15 +485,15 @@ describe('serveIndex(root)', function () {
 
   describe('when using custom handler', function () {
     describe('exports.html', function () {
-      it('should get called with Accept: text/html', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files) {
-            res.setHeader('Content-Type', 'text/html');
-            res.end('called');
-          }
-        };
+      alterProperty(serveIndex, 'html', serveIndex.html)
 
-        var server = createServer(null, options)
+      it('should get called with Accept: text/html', function (done) {
+        var server = createServer()
+
+        serveIndex.html = function (req, res, files) {
+          res.setHeader('Content-Type', 'text/html');
+          res.end('called');
+        }
 
         request(server)
         .get('/')
@@ -502,17 +502,15 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get file list', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files) {
-            var text = files
+        var server = createServer()
+
+        serveIndex.html = function (req, res, files) {
+          var text = files
             .filter(function (f) { return /\.txt$/.test(f) })
             .sort()
-            res.setHeader('Content-Type', 'text/html')
-            res.end('<b>' + text.length + ' text files</b>')
-          }
-        };
-
-        var server = createServer(null, options);
+          res.setHeader('Content-Type', 'text/html')
+          res.end('<b>' + text.length + ' text files</b>')
+        }
 
         request(server)
         .get('/')
@@ -521,14 +519,12 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get dir name', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files, next, dir) {
-            res.setHeader('Content-Type', 'text/html')
-            res.end('<b>' + dir + '</b>')
-          }
-        };
+        var server = createServer()
 
-        var server = createServer(null, options)
+        serveIndex.html = function (req, res, files, next, dir) {
+          res.setHeader('Content-Type', 'text/html')
+          res.end('<b>' + dir + '</b>')
+        }
 
         request(server)
         .get('/users/')
@@ -537,14 +533,12 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get template path', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template) {
-            res.setHeader('Content-Type', 'text/html')
-            res.end(String(fs.existsSync(template)))
-          }
-        };
+        var server = createServer()
 
-        var server = createServer(null, options)
+        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template) {
+          res.setHeader('Content-Type', 'text/html')
+          res.end(String(fs.existsSync(template)))
+        }
 
         request(server)
         .get('/users/')
@@ -553,14 +547,12 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get template with tokens', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template) {
-            res.setHeader('Content-Type', 'text/html')
-            res.end(fs.readFileSync(template, 'utf8'))
-          }
-        };
+        var server = createServer()
 
-        var server = createServer(null, options)
+        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template) {
+          res.setHeader('Content-Type', 'text/html')
+          res.end(fs.readFileSync(template, 'utf8'))
+        }
 
         request(server)
         .get('/users/')
@@ -573,14 +565,12 @@ describe('serveIndex(root)', function () {
       });
 
       it('should get stylesheet path', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files, next, dir, showUp, icons, path, view, template, stylesheet) {
-            res.setHeader('Content-Type', 'text/html')
-            res.end(String(fs.existsSync(stylesheet)))
-          }
-        };
+        var server = createServer()
 
-        var server = createServer(null, options)
+        serveIndex.html = function (req, res, files, next, dir, showUp, icons, path, view, template, stylesheet) {
+          res.setHeader('Content-Type', 'text/html')
+          res.end(String(fs.existsSync(stylesheet)))
+        }
 
         request(server)
         .get('/users/')
@@ -590,15 +580,15 @@ describe('serveIndex(root)', function () {
     });
 
     describe('exports.plain', function () {
-      it('should get called with Accept: text/plain', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files) {
-            res.setHeader('Content-Type', 'text/plain');
-            res.end('called');
-          }
-        };
+      alterProperty(serveIndex, 'plain', serveIndex.plain)
 
-        var server = createServer(null, options)
+      it('should get called with Accept: text/plain', function (done) {
+        var server = createServer()
+
+        serveIndex.plain = function (req, res, files) {
+          res.setHeader('Content-Type', 'text/plain');
+          res.end('called');
+        }
 
         request(server)
         .get('/')
@@ -608,15 +598,15 @@ describe('serveIndex(root)', function () {
     });
 
     describe('exports.json', function () {
-      it('should get called with Accept: application/json', function (done) {
-        var options = {
-          responseHandler: function html(req, res, files) {
-            res.setHeader('Content-Type', 'application/json');
-            res.end('"called"');
-          }
-        };
+      alterProperty(serveIndex, 'json', serveIndex.json)
 
-        var server = createServer(null, options)
+      it('should get called with Accept: application/json', function (done) {
+        var server = createServer()
+
+        serveIndex.json = function (req, res, files) {
+          res.setHeader('Content-Type', 'application/json');
+          res.end('"called"');
+        }
 
         request(server)
         .get('/')
@@ -772,6 +762,18 @@ describe('serveIndex(root)', function () {
     });
   });
 });
+
+function alterProperty(obj, prop, val) {
+  var prev
+
+  beforeEach(function () {
+    prev = obj[prop]
+    obj[prop] = val
+  })
+  afterEach(function () {
+    obj[prop] = prev
+  })
+}
 
 function createServer(dir, opts) {
   dir = dir || fixtures
