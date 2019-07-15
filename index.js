@@ -40,6 +40,17 @@ module.exports = serveIndex;
 
 var cache = {};
 
+/*!
+ * Default template.
+ */
+
+var defaultTemplate = nativePathLib.join(__dirname, 'public', 'directory.html');
+
+/*!
+ * Stylesheet.
+ */
+
+var defaultStylesheet = nativePathLib.join(__dirname, 'public', 'style.css');
 
 /**
  * Media types and the map for content negotiation.
@@ -82,12 +93,6 @@ function serveIndex(root, options) {
   , sep = pathLib.sep
   , join = pathLib.join
   , resolve = pathLib.resolve;
-
-  // default Stylesheet
-  var defaultStylesheet = join(__dirname, 'public', 'style.css');
-  // default Template
-  var defaultTemplate = join(__dirname, 'public', 'directory.html');
-
 
   // resolve root to absolute and normalize
   var rootPath = normalize(resolve(root) + sep);
