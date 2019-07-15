@@ -105,6 +105,75 @@ function serveIndex(root, options) {
   var view = opts.view || 'tiles';
   var filesystem = opts.fs || fs;
 
+  function indexServer(req, res, next) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
+      res.setHeader('Allow', 'GET, HEAD, OPTIONS');
+      res.setHeader('Content-Length', '0');
+      res.end();
+      return;
+    }
+
+    // parse URLs
+    var url = parseUrl(req);
+    var originalUrl = parseUrl.original(req);
+    var dir = decodeURIComponent(url.pathname);
+    var originalDir = decodeURIComponent(originalUrl.pathname);
+
+    // join / normalize from root dir
+    var path = normalize(join(rootPath, dir));
+
+    // null byte(s), bad request
+    if (~path.indexOf('\0')) return next(createError(400));
+
+    // malicious path
+    if ((path + sep).substr(0, rootPath.length) !== rootPath) {
+      debug('malicious path "%s"', path);
+      return next(createError(403));
+    }
+
+    // determine ".." display
+    var showUp = normalize(resolve(path) + sep) !== rootPath;
+
+    // check if we have a directory
+    debug('stat "%s"', path);
+    filesystem.stat(path, function(err, stat){
+      if (err && err.code === 'ENOENT') {
+        return next();
+      }
+
+      if (err) {
+        err.status = err.code === 'ENAMETOOLONG'
+          ? 414
+          : 500;
+        return next(err);
+      }
+
+      if (!stat.isDirectory()) return next();
+
+      // fetch files
+      debug('readdir "%s"', path);
+      filesystem.readdir(path, function(err, files){
+        if (err) return next(err);
+        if (!hidden) files = removeHidden(files);
+        if (filter) files = files.filter(function(filename, index, list) {
+          return filter(filename, index, list, path);
+        });
+        files.sort();
+
+        // content-negotiation
+        var accept = accepts(req);
+        var type = accept.type(mediaTypes);
+
+        // not acceptable
+        if (!type) return next(createError(406));
+        // find the relevant media-type to send the response
+        var responseHandler = getResponseHandler(type);
+        responseHandler(req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
+      });
+    });
+  }
+
   /**
    * Respond with text/html.
    */
@@ -474,74 +543,7 @@ function serveIndex(root, options) {
     return serveIndexMediaType
   }
 
-  return function (req, res, next) {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
-      res.setHeader('Allow', 'GET, HEAD, OPTIONS');
-      res.setHeader('Content-Length', '0');
-      res.end();
-      return;
-    }
-
-    // parse URLs
-    var url = parseUrl(req);
-    var originalUrl = parseUrl.original(req);
-    var dir = decodeURIComponent(url.pathname);
-    var originalDir = decodeURIComponent(originalUrl.pathname);
-
-    // join / normalize from root dir
-    var path = normalize(join(rootPath, dir));
-
-    // null byte(s), bad request
-    if (~path.indexOf('\0')) return next(createError(400));
-
-    // malicious path
-    if ((path + sep).substr(0, rootPath.length) !== rootPath) {
-      debug('malicious path "%s"', path);
-      return next(createError(403));
-    }
-
-    // determine ".." display
-    var showUp = normalize(resolve(path) + sep) !== rootPath;
-
-    // check if we have a directory
-    debug('stat "%s"', path);
-    filesystem.stat(path, function(err, stat){
-      if (err && err.code === 'ENOENT') {
-        return next();
-      }
-
-      if (err) {
-        err.status = err.code === 'ENAMETOOLONG'
-          ? 414
-          : 500;
-        return next(err);
-      }
-
-      if (!stat.isDirectory()) return next();
-
-      // fetch files
-      debug('readdir "%s"', path);
-      filesystem.readdir(path, function(err, files){
-        if (err) return next(err);
-        if (!hidden) files = removeHidden(files);
-        if (filter) files = files.filter(function(filename, index, list) {
-          return filter(filename, index, list, path);
-        });
-        files.sort();
-
-        // content-negotiation
-        var accept = accepts(req);
-        var type = accept.type(mediaTypes);
-
-        // not acceptable
-        if (!type) return next(createError(406));
-        // find the relevant media-type to send the response
-        var respHandler = getResponseHandler(type);
-        respHandler(req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
-      });
-    });
-  };
+  return indexServer;
 };
 
 // custom response handlers
