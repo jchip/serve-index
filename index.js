@@ -87,464 +87,443 @@ function serveIndex(root, options) {
     throw new TypeError('serveIndex() root path required');
   }
 
-  var pathLib = opts.path || nativePathLib;
-  var normalize = pathLib.normalize
-  , extname = pathLib.extname
-  , sep = pathLib.sep
-  , join = pathLib.join
-  , resolve = pathLib.resolve;
-
+  // mainly for Windows to use posix() for MemFS
+  this.pathLib = opts.path || nativePathLib;
   // resolve root to absolute and normalize
-  var rootPath = normalize(resolve(root) + sep);
+  this.rootPath = this.pathLib.normalize(this.pathLib.resolve(root) + this.pathLib.sep);
+  // retreive other options
+  this.filter = opts.filter;
+  this.hidden = opts.hidden;
+  this.showIcons = opts.icons;
+  this.stylesheet = opts.stylesheet || defaultStylesheet;
+  this.template = opts.template || defaultTemplate;
+  this.view = opts.view || 'tiles';
+  this.filesystem = opts.fs || fs;
+}
 
-  var filter = opts.filter;
-  var hidden = opts.hidden;
-  var showIcons = opts.icons;
-  var stylesheet = opts.stylesheet || defaultStylesheet;
-  var template = opts.template || defaultTemplate;
-  var view = opts.view || 'tiles';
-  var filesystem = opts.fs || fs;
-
-  function indexServer(req, res, next) {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
-      res.setHeader('Allow', 'GET, HEAD, OPTIONS');
-      res.setHeader('Content-Length', '0');
-      res.end();
-      return;
-    }
-
-    // parse URLs
-    var url = parseUrl(req);
-    var originalUrl = parseUrl.original(req);
-    var dir = decodeURIComponent(url.pathname);
-    var originalDir = decodeURIComponent(originalUrl.pathname);
-
-    // join / normalize from root dir
-    var path = normalize(join(rootPath, dir));
-
-    // null byte(s), bad request
-    if (~path.indexOf('\0')) return next(createError(400));
-
-    // malicious path
-    if ((path + sep).substr(0, rootPath.length) !== rootPath) {
-      debug('malicious path "%s"', path);
-      return next(createError(403));
-    }
-
-    // determine ".." display
-    var showUp = normalize(resolve(path) + sep) !== rootPath;
-
-    // check if we have a directory
-    debug('stat "%s"', path);
-    filesystem.stat(path, function(err, stat){
-      if (err && err.code === 'ENOENT') {
-        return next();
-      }
-
-      if (err) {
-        err.status = err.code === 'ENAMETOOLONG'
-          ? 414
-          : 500;
-        return next(err);
-      }
-
-      if (!stat.isDirectory()) return next();
-
-      // fetch files
-      debug('readdir "%s"', path);
-      filesystem.readdir(path, function(err, files){
-        if (err) return next(err);
-        if (!hidden) files = removeHidden(files);
-        if (filter) files = files.filter(function(filename, index, list) {
-          return filter(filename, index, list, path);
-        });
-        files.sort();
-
-        // content-negotiation
-        var accept = accepts(req);
-        var type = accept.type(mediaTypes);
-
-        // not acceptable
-        if (!type) return next(createError(406));
-        // find the relevant media-type to send the response
-        var responseHandler = getResponseHandler(type);
-        responseHandler(req, res, files, next, originalDir, showUp, showIcons, path, view, template, stylesheet, filesystem);
-      });
-    });
+serveIndex.prototype.indexServer = function(req, res, next) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
+    res.setHeader('Allow', 'GET, HEAD, OPTIONS');
+    res.setHeader('Content-Length', '0');
+    res.end();
+    return;
   }
 
-  /**
-   * Respond with text/html.
-   */
-  function html(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
-    var render = typeof template !== 'function'
-      ? createHtmlRender(template)
-      : template
+  // parse URLs
+  var url = parseUrl(req);
+  var originalUrl = parseUrl.original(req);
+  var dir = decodeURIComponent(url.pathname);
+  var originalDir = decodeURIComponent(originalUrl.pathname);
 
-    if (showUp) {
-      files.unshift('..');
+  // join / normalize from root dir
+  var path = this.pathLib.normalize(this.pathLib.join(this.rootPath, dir));
+
+  // null byte(s), bad request
+  if (~path.indexOf('\0')) return next(createError(400));
+
+  // malicious path
+  if ((path + this.pathLib.sep).substr(0, this.rootPath.length) !== this.rootPath) {
+    debug('malicious path "%s"', path);
+    return next(createError(403));
+  }
+
+  // determine ".." display
+  var showUp = this.pathLib.normalize(this.pathLib.resolve(path) + this.pathLib.sep) !== this.rootPath;
+
+  // check if we have a directory
+  debug('stat "%s"', path);
+  var _self = this;
+  this.filesystem.stat(path, function(err, stat){
+    if (err && err.code === 'ENOENT') {
+      return next();
     }
 
-    // stat all files
-    statFiles(path, files, filesystem, function (err, stats) {
+    if (err) {
+      err.status = err.code === 'ENAMETOOLONG'
+        ? 414
+        : 500;
+      return next(err);
+    }
+
+    if (!stat.isDirectory()) return next();
+
+    // fetch files
+    debug('readdir "%s"', path);
+    _self.filesystem.readdir(path, function(err, files){
+      if (err) return next(err);
+      if (!_self.hidden) files = _self.removeHidden(files);
+      if (_self.filter) files = files.filter(function(filename, index, list) {
+        return _self.filter(filename, index, list, path);
+      });
+      files.sort();
+
+      // content-negotiation
+      var accept = accepts(req);
+      var type = accept.type(mediaTypes);
+
+      // not acceptable
+      if (!type) return next(createError(406));
+      // find the relevant media-type to send the response
+      var media = mediaType[type];
+      var handlerContext = typeof serveIndex[media] === 'function' ? undefined : _self;
+      (serveIndex[media] || _self[media]).call(handlerContext, req, res, files, next, originalDir, showUp, _self.showIcons, path, _self.view, _self.template, _self.stylesheet, _self.filesystem);
+    });
+  });
+}
+
+/**
+ * Respond with text/html.
+ */
+serveIndex.prototype.html = function(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
+  var render = typeof template !== 'function'
+    ? this.createHtmlRender(template)
+    : template
+
+  if (showUp) {
+    files.unshift('..');
+  }
+
+  var _self = this;
+  // stat all files
+  this.statFiles(path, files, filesystem, function (err, stats) {
+    if (err) return next(err);
+
+    // combine the stats into the file list
+    var fileList = files.map(function (file, i) {
+      return { name: file, stat: stats[i] };
+    });
+
+    // sort file list
+    fileList.sort(_self.fileSort);
+
+    // read stylesheet
+    fs.readFile(stylesheet, 'utf8', function (err, style) {
       if (err) return next(err);
 
-      // combine the stats into the file list
-      var fileList = files.map(function (file, i) {
-        return { name: file, stat: stats[i] };
-      });
+      // create locals for rendering
+      var locals = {
+        directory: dir,
+        displayIcons: Boolean(displayIcons),
+        fileList: fileList,
+        path: path,
+        style: style,
+        viewName: view
+      };
 
-      // sort file list
-      fileList.sort(fileSort);
-
-      // read stylesheet
-      fs.readFile(stylesheet, 'utf8', function (err, style) {
+      // render html
+      render(locals, function (err, body) {
         if (err) return next(err);
-
-        // create locals for rendering
-        var locals = {
-          directory: dir,
-          displayIcons: Boolean(displayIcons),
-          fileList: fileList,
-          path: path,
-          style: style,
-          viewName: view
-        };
-
-        // render html
-        render(locals, function (err, body) {
-          if (err) return next(err);
-          send(res, 'text/html', body)
-        });
+        _self.send(res, 'text/html', body)
       });
     });
-  };
+  });
+};
 
-  /**
-   * Respond with application/json.
-   */
-  function json(req, res, files) {
-    send(res, 'application/json', JSON.stringify(files))
-  };
+/**
+ * Respond with application/json.
+ */
+serveIndex.prototype.json = function(req, res, files) {
+  this.send(res, 'application/json', JSON.stringify(files))
+};
 
-  /**
-   * Respond with text/plain.
-   */
-  function plain(req, res, files) {
-    send(res, 'text/plain', (files.join('\n') + '\n'))
-  };
+/**
+ * Respond with text/plain.
+ */
+serveIndex.prototype.plain = function(req, res, files) {
+  this.send(res, 'text/plain', (files.join('\n') + '\n'))
+};
 
-  /**
-   * Map html `files`, returning an html unordered list.
-   * @private
-   */
-  function createHtmlFileList(files, dir, useIcons, view) {
-    //var extname = serveIndex.pathLib.extname;
-    //var normalize = serveIndex.pathLib.normalize;
-    var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
-      + (view === 'details' ? (
-        '<li class="header">'
-        + '<span class="name">Name</span>'
-        + '<span class="size">Size</span>'
-        + '<span class="date">Modified</span>'
-        + '</li>') : '');
+/**
+ * Map html `files`, returning an html unordered list.
+ * @private
+ */
+serveIndex.prototype.createHtmlFileList = function(files, dir, useIcons, view) {
+  var _self = this;
+  var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
+    + (view === 'details' ? (
+      '<li class="header">'
+      + '<span class="name">Name</span>'
+      + '<span class="size">Size</span>'
+      + '<span class="date">Modified</span>'
+      + '</li>') : '');
 
-    html += files.map(function (file) {
-      var classes = [];
-      var isDir = file.stat && file.stat.isDirectory();
-      var path = dir.split('/').map(function (c) { return encodeURIComponent(c); });
+  html += files.map(function (file) {
+    var classes = [];
+    var isDir = file.stat && file.stat.isDirectory();
+    var path = dir.split('/').map(function (c) { return encodeURIComponent(c); });
 
-      if (useIcons) {
+    if (useIcons) {
+      classes.push('icon');
+
+      if (isDir) {
+        classes.push('icon-directory');
+      } else {
+        var ext = _self.pathLib.extname(file.name);
+        var icon = _self.iconLookup(file.name);
+
         classes.push('icon');
+        classes.push('icon-' + ext.substring(1));
 
-        if (isDir) {
-          classes.push('icon-directory');
-        } else {
-          var ext = extname(file.name);
-          var icon = iconLookup(file.name);
-
-          classes.push('icon');
-          classes.push('icon-' + ext.substring(1));
-
-          if (classes.indexOf(icon.className) === -1) {
-            classes.push(icon.className);
-          }
+        if (classes.indexOf(icon.className) === -1) {
+          classes.push(icon.className);
         }
       }
+    }
 
-      path.push(encodeURIComponent(file.name));
+    path.push(encodeURIComponent(file.name));
 
-      var date = file.stat && file.stat.mtime && file.name !== '..'
-        ? file.stat.mtime.toLocaleDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
-        : '';
-      var size = file.stat && !isDir
-        ? file.stat.size
-        : '';
+    var date = file.stat && file.stat.mtime && file.name !== '..'
+      ? file.stat.mtime.toLocaleDateString() + ' ' + file.stat.mtime.toLocaleTimeString()
+      : '';
+    var size = file.stat && !isDir
+      ? file.stat.size
+      : '';
 
-      return '<li><a href="'
-        + escapeHtml(normalizeSlashes(normalize(path.join('/'))))
-        + '" class="' + escapeHtml(classes.join(' ')) + '"'
-        + ' title="' + escapeHtml(file.name) + '">'
-        + '<span class="name">' + escapeHtml(file.name) + '</span>'
-        + '<span class="size">' + escapeHtml(size) + '</span>'
-        + '<span class="date">' + escapeHtml(date) + '</span>'
-        + '</a></li>';
-    }).join('\n');
+    return '<li><a href="'
+      + escapeHtml(_self.normalizeSlashes(_self.pathLib.normalize(path.join('/'))))
+      + '" class="' + escapeHtml(classes.join(' ')) + '"'
+      + ' title="' + escapeHtml(file.name) + '">'
+      + '<span class="name">' + escapeHtml(file.name) + '</span>'
+      + '<span class="size">' + escapeHtml(size) + '</span>'
+      + '<span class="date">' + escapeHtml(date) + '</span>'
+      + '</a></li>';
+  }).join('\n');
 
-    html += '</ul>';
+  html += '</ul>';
 
-    return html;
+  return html;
+}
+
+/**
+ * Create function to render html.
+ */
+serveIndex.prototype.createHtmlRender = function(template) {
+  var _self = this;
+  return function render(locals, callback) {
+    // read template
+    fs.readFile(template, 'utf8', function (err, str) {
+      if (err) return callback(err);
+
+      var body = str
+        .replace(/\{style\}/g, locals.style.concat(_self.iconStyle(locals.fileList, locals.displayIcons)))
+        .replace(/\{files\}/g, _self.createHtmlFileList(locals.fileList, locals.directory, locals.displayIcons, locals.viewName))
+        .replace(/\{directory\}/g, escapeHtml(locals.directory))
+        .replace(/\{linked-path\}/g, _self.htmlPath(locals.directory));
+
+      callback(null, body);
+    });
+  };
+}
+
+/**
+ * Sort function for with directories first.
+ */
+serveIndex.prototype.fileSort = function(a, b) {
+  // sort ".." to the top
+  if (a.name === '..' || b.name === '..') {
+    return a.name === b.name ? 0
+      : a.name === '..' ? -1 : 1;
   }
 
-  /**
-   * Create function to render html.
-   */
-  function createHtmlRender(template) {
-    return function render(locals, callback) {
-      // read template
-      fs.readFile(template, 'utf8', function (err, str) {
-        if (err) return callback(err);
+  return Number(b.stat && b.stat.isDirectory()) - Number(a.stat && a.stat.isDirectory()) ||
+    String(a.name).toLocaleLowerCase().localeCompare(String(b.name).toLocaleLowerCase());
+}
 
-        var body = str
-          .replace(/\{style\}/g, locals.style.concat(iconStyle(locals.fileList, locals.displayIcons)))
-          .replace(/\{files\}/g, createHtmlFileList(locals.fileList, locals.directory, locals.displayIcons, locals.viewName))
-          .replace(/\{directory\}/g, escapeHtml(locals.directory))
-          .replace(/\{linked-path\}/g, htmlPath(locals.directory));
+/**
+ * Map html `dir`, returning a linked path.
+ */
+serveIndex.prototype.htmlPath = function(dir) {
+  var parts = dir.split('/');
+  var crumb = new Array(parts.length);
 
-        callback(null, body);
-      });
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i];
+
+    if (part) {
+      parts[i] = encodeURIComponent(part);
+      crumb[i] = '<a href="' + escapeHtml(parts.slice(0, i + 1).join('/')) + '">' + escapeHtml(part) + '</a>';
+    }
+  }
+
+  return crumb.join(' / ');
+}
+
+/**
+ * Get the icon data for the file name.
+ */
+serveIndex.prototype.iconLookup = function(filename) {
+  var ext = this.pathLib.extname(filename);
+
+  // try by extension
+  if (icons[ext]) {
+    return {
+      className: 'icon-' + ext.substring(1),
+      fileName: icons[ext]
     };
   }
 
-  /**
-   * Sort function for with directories first.
-   */
-  function fileSort(a, b) {
-    // sort ".." to the top
-    if (a.name === '..' || b.name === '..') {
-      return a.name === b.name ? 0
-        : a.name === '..' ? -1 : 1;
-    }
+  var mimetype = mime.lookup(ext);
 
-    return Number(b.stat && b.stat.isDirectory()) - Number(a.stat && a.stat.isDirectory()) ||
-      String(a.name).toLocaleLowerCase().localeCompare(String(b.name).toLocaleLowerCase());
-  }
-
-  /**
-   * Map html `dir`, returning a linked path.
-   */
-  function htmlPath(dir) {
-    var parts = dir.split('/');
-    var crumb = new Array(parts.length);
-
-    for (var i = 0; i < parts.length; i++) {
-      var part = parts[i];
-
-      if (part) {
-        parts[i] = encodeURIComponent(part);
-        crumb[i] = '<a href="' + escapeHtml(parts.slice(0, i + 1).join('/')) + '">' + escapeHtml(part) + '</a>';
-      }
-    }
-
-    return crumb.join(' / ');
-  }
-
-  /**
-   * Get the icon data for the file name.
-   */
-  function iconLookup(filename) {
-    //var extname = serveIndex.pathLib.extname;
-    var ext = extname(filename);
-
-    // try by extension
-    if (icons[ext]) {
-      return {
-        className: 'icon-' + ext.substring(1),
-        fileName: icons[ext]
-      };
-    }
-
-    var mimetype = mime.lookup(ext);
-
-    // default if no mime type
-    if (mimetype === false) {
-      return {
-        className: 'icon-default',
-        fileName: icons.default
-      };
-    }
-
-    // try by mime type
-    if (icons[mimetype]) {
-      return {
-        className: 'icon-' + mimetype.replace('/', '-'),
-        fileName: icons[mimetype]
-      };
-    }
-
-    var suffix = mimetype.split('+')[1];
-
-    if (suffix && icons['+' + suffix]) {
-      return {
-        className: 'icon-' + suffix,
-        fileName: icons['+' + suffix]
-      };
-    }
-
-    var type = mimetype.split('/')[0];
-
-    // try by type only
-    if (icons[type]) {
-      return {
-        className: 'icon-' + type,
-        fileName: icons[type]
-      };
-    }
-
+  // default if no mime type
+  if (mimetype === false) {
     return {
       className: 'icon-default',
       fileName: icons.default
     };
   }
 
-  /**
-   * Load icon images, return css string.
-   */
-  function iconStyle(files, useIcons) {
-    if (!useIcons) return '';
-    var i;
-    var list = [];
-    var rules = {};
-    var selector;
-    var selectors = {};
-    var style = '';
-
-    for (i = 0; i < files.length; i++) {
-      var file = files[i];
-
-      var isDir = file.stat && file.stat.isDirectory();
-      var icon = isDir
-        ? { className: 'icon-directory', fileName: icons.folder }
-        : iconLookup(file.name);
-      var iconName = icon.fileName;
-
-      selector = '#files .' + icon.className + ' .name';
-
-      if (!rules[iconName]) {
-        rules[iconName] = 'background-image: url(data:image/png;base64,' + load(iconName) + ');'
-        selectors[iconName] = [];
-        list.push(iconName);
-      }
-
-      if (selectors[iconName].indexOf(selector) === -1) {
-        selectors[iconName].push(selector);
-      }
-    }
-
-    for (i = 0; i < list.length; i++) {
-      iconName = list[i];
-      style += selectors[iconName].join(',\n') + ' {\n  ' + rules[iconName] + '\n}\n';
-    }
-
-    return style;
+  // try by mime type
+  if (icons[mimetype]) {
+    return {
+      className: 'icon-' + mimetype.replace('/', '-'),
+      fileName: icons[mimetype]
+    };
   }
 
-  /**
-   * Load and cache the given `icon`.
-   *
-   * @param {String} icon
-   * @return {String}
-   * @api private
-   */
-  function load(icon) {
-    if (cache[icon]) return cache[icon];
-    return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
+  var suffix = mimetype.split('+')[1];
+
+  if (suffix && icons['+' + suffix]) {
+    return {
+      className: 'icon-' + suffix,
+      fileName: icons['+' + suffix]
+    };
   }
 
-  /**
-   * Normalizes the path separator from system separator
-   * to URL separator, aka `/`.
-   *
-   * @param {String} path
-   * @return {String}
-   * @api private
-   */
-  function normalizeSlashes(path) {
-    //var sep = serveIndex.pathLib.sep;
-    return path.split(sep).join('/');
+  var type = mimetype.split('/')[0];
+
+  // try by type only
+  if (icons[type]) {
+    return {
+      className: 'icon-' + type,
+      fileName: icons[type]
+    };
+  }
+
+  return {
+    className: 'icon-default',
+    fileName: icons.default
   };
+}
 
-  /**
-   * Filter "hidden" `files`, aka files
-   * beginning with a `.`.
-   *
-   * @param {Array} files
-   * @return {Array}
-   * @api private
-   */
-  function removeHidden(files) {
-    return files.filter(function(file){
-      return file[0] !== '.'
-    });
+/**
+ * Load icon images, return css string.
+ */
+serveIndex.prototype.iconStyle = function(files, useIcons) {
+  if (!useIcons) return '';
+  var i;
+  var list = [];
+  var rules = {};
+  var selector;
+  var selectors = {};
+  var style = '';
+
+  for (i = 0; i < files.length; i++) {
+    var file = files[i];
+
+    var isDir = file.stat && file.stat.isDirectory();
+    var icon = isDir
+      ? { className: 'icon-directory', fileName: icons.folder }
+      : this.iconLookup(file.name);
+    var iconName = icon.fileName;
+
+    selector = '#files .' + icon.className + ' .name';
+
+    if (!rules[iconName]) {
+      rules[iconName] = 'background-image: url(data:image/png;base64,' + this.load(iconName) + ');'
+      selectors[iconName] = [];
+      list.push(iconName);
+    }
+
+    if (selectors[iconName].indexOf(selector) === -1) {
+      selectors[iconName].push(selector);
+    }
   }
 
-  /**
-   * Send a response.
-   * @private
-   */
-  function send (res, type, body) {
-    // security header for content sniffing
-    res.setHeader('X-Content-Type-Options', 'nosniff')
-
-    // standard headers
-    res.setHeader('Content-Type', type + '; charset=utf-8')
-    res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'))
-
-    // body
-    res.end(body, 'utf8')
+  for (i = 0; i < list.length; i++) {
+    iconName = list[i];
+    style += selectors[iconName].join(',\n') + ' {\n  ' + rules[iconName] + '\n}\n';
   }
 
-  /**
-   * Stat all files and return array of stat
-   * in same order.
-   */
-  function statFiles(dir, files, filesystem, cb) {
-    var batch = new Batch();
-    batch.concurrency(10);
+  return style;
+}
 
-    files.forEach(function(file){
-      batch.push(function(done){
-        filesystem.stat(join(dir, file), function(err, stat){
-          if (err && err.code !== 'ENOENT') return done(err);
+/**
+ * Load and cache the given `icon`.
+ *
+ * @param {String} icon
+ * @return {String}
+ * @api private
+ */
+serveIndex.prototype.load = function(icon) {
+  if (cache[icon]) return cache[icon];
+  return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
+}
 
-          // pass ENOENT as null stat, not error
-          done(null, stat || null);
-        });
+/**
+ * Normalizes the path separator from system separator
+ * to URL separator, aka `/`.
+ *
+ * @param {String} path
+ * @return {String}
+ * @api private
+ */
+serveIndex.prototype.normalizeSlashes = function(path) {
+  return path.split(this.pathLib.sep).join('/');
+};
+
+/**
+ * Filter "hidden" `files`, aka files
+ * beginning with a `.`.
+ *
+ * @param {Array} files
+ * @return {Array}
+ * @api private
+ */
+serveIndex.prototype.removeHidden = function(files) {
+  return files.filter(function(file){
+    return file[0] !== '.'
+  });
+}
+
+/**
+ * Send a response.
+ * @private
+ */
+serveIndex.prototype.send = function(res, type, body) {
+  // security header for content sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+
+  // standard headers
+  res.setHeader('Content-Type', type + '; charset=utf-8')
+  res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'))
+
+  // body
+  res.end(body, 'utf8')
+}
+
+/**
+ * Stat all files and return array of stat
+ * in same order.
+ */
+serveIndex.prototype.statFiles = function(dir, files, filesystem, cb) {
+  var batch = new Batch();
+  batch.concurrency(10);
+
+  var _self = this;
+  files.forEach(function(file){
+    batch.push(function(done){
+      filesystem.stat(_self.pathLib.join(dir, file), function(err, stat){
+        if (err && err.code !== 'ENOENT') return done(err);
+
+        // pass ENOENT as null stat, not error
+        done(null, stat || null);
       });
     });
+  });
 
-    batch.end(cb);
-  }
-
-  function getResponseHandler(type) {
-    var media = mediaType[type];
-    var serveIndexMediaType = serveIndex[media];
-
-    if (typeof serveIndexMediaType !== 'function') {
-      if (media === 'json')  {
-        serveIndexMediaType =   json;
-      } else if (media === 'plain') {
-        serveIndexMediaType = plain;
-      } else {
-        serveIndexMediaType = html;
-      }
-    }
-    return serveIndexMediaType
-  }
-
-  return indexServer;
-};
+  batch.end(cb);
+}
 
 // custom response handlers
 //  to be overridden when needed
