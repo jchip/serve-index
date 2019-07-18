@@ -100,7 +100,7 @@ function ServeIndex(root, options) {
   this.stylesheet = opts.stylesheet || defaultStylesheet;
   this.template = opts.template || defaultTemplate;
   this.view = opts.view || 'tiles';
-  this.filesystem = opts.fs || fs; 
+  this.filesystem = opts.fs || fs;
 }
 
 function serveIndex(root, options) {
