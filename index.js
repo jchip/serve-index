@@ -106,81 +106,79 @@ function ServeIndex(root, options) {
 function serveIndex(root, options) {
   var instance = new ServeIndex(root, options);
 
-  function serve(req, res, next) {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
-      res.setHeader('Allow', 'GET, HEAD, OPTIONS');
-      res.setHeader('Content-Length', '0');
-      res.end();
-      return;
-    }
-  
-    // parse URLs
-    var url = parseUrl(req);
-    var originalUrl = parseUrl.original(req);
-    var dir = decodeURIComponent(url.pathname);
-    var originalDir = decodeURIComponent(originalUrl.pathname);
-  
-    // join / normalize from root dir
-    var path = this.pathLib.normalize(this.pathLib.join(this.rootPath, dir));
-  
-    // null byte(s), bad request
-    if (~path.indexOf('\0')) return next(createError(400));
-  
-    // malicious path
-    if ((path + this.pathLib.sep).substr(0, this.rootPath.length) !== this.rootPath) {
-      debug('malicious path "%s"', path);
-      return next(createError(403));
-    }
-  
-    // determine ".." display
-    var showUp = this.pathLib.normalize(this.pathLib.resolve(path) + this.pathLib.sep) !== this.rootPath;
-  
-    // check if we have a directory
-    debug('stat "%s"', path);
-    var _self = this;
-    this.filesystem.stat(path, function(err, stat){
-      if (err && err.code === 'ENOENT') {
-        return next();
-      }
-  
-      if (err) {
-        err.status = err.code === 'ENAMETOOLONG'
-          ? 414
-          : 500;
-        return next(err);
-      }
-  
-      if (!stat.isDirectory()) return next();
-  
-      // fetch files
-      debug('readdir "%s"', path);
-      _self.filesystem.readdir(path, function(err, files){
-        if (err) return next(err);
-        if (!_self.hidden) files = _self.removeHidden(files);
-        if (_self.filter) files = files.filter(function(filename, index, list) {
-          return _self.filter(filename, index, list, path);
-        });
-        files.sort();
-  
-        // content-negotiation
-        var accept = accepts(req);
-        var type = accept.type(mediaTypes);
-  
-        // not acceptable
-        if (!type) return next(createError(406));
-        // find the relevant media-type to send the response
-        var media = mediaType[type];
-        var handlerContext = typeof serveIndex[media] === 'function' ? undefined : _self;
-        (serveIndex[media] || _self[media]).call(handlerContext, req, res, files, next, originalDir, showUp, _self.showIcons, path, _self.view, _self.template, _self.stylesheet, _self.filesystem);
-      });
-    });
+  return instance.serve.bind(instance);
+}
+
+ServeIndex.prototype.serve = function serve(req, res, next) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
+    res.setHeader('Allow', 'GET, HEAD, OPTIONS');
+    res.setHeader('Content-Length', '0');
+    res.end();
+    return;
   }
 
-  return function(req, res, next) {
-    return serve.call(instance, req, res, next);
+  // parse URLs
+  var url = parseUrl(req);
+  var originalUrl = parseUrl.original(req);
+  var dir = decodeURIComponent(url.pathname);
+  var originalDir = decodeURIComponent(originalUrl.pathname);
+
+  // join / normalize from root dir
+  var path = this.pathLib.normalize(this.pathLib.join(this.rootPath, dir));
+
+  // null byte(s), bad request
+  if (~path.indexOf('\0')) return next(createError(400));
+
+  // malicious path
+  if ((path + this.pathLib.sep).substr(0, this.rootPath.length) !== this.rootPath) {
+    debug('malicious path "%s"', path);
+    return next(createError(403));
   }
-}
+
+  // determine ".." display
+  var showUp = this.pathLib.normalize(this.pathLib.resolve(path) + this.pathLib.sep) !== this.rootPath;
+
+  // check if we have a directory
+  debug('stat "%s"', path);
+  var _self = this;
+  this.filesystem.stat(path, function(err, stat){
+    if (err && err.code === 'ENOENT') {
+      return next();
+    }
+
+    if (err) {
+      err.status = err.code === 'ENAMETOOLONG'
+        ? 414
+        : 500;
+      return next(err);
+    }
+
+    if (!stat.isDirectory()) return next();
+
+    // fetch files
+    debug('readdir "%s"', path);
+    _self.filesystem.readdir(path, function(err, files){
+      if (err) return next(err);
+      if (!_self.hidden) files = _self.removeHidden(files);
+      if (_self.filter) files = files.filter(function(filename, index, list) {
+        return _self.filter(filename, index, list, path);
+      });
+      files.sort();
+
+      // content-negotiation
+      var accept = accepts(req);
+      var type = accept.type(mediaTypes);
+
+      // not acceptable
+      if (!type) return next(createError(406));
+      // find the relevant media-type to send the response
+      var media = mediaType[type];
+      var handlerContext = typeof serveIndex[media] === 'function' ? undefined : _self;
+      (serveIndex[media] || _self[media]).call(handlerContext, req, res, files, next, originalDir, showUp, _self.showIcons, path, _self.view, _self.template, _self.stylesheet, _self.filesystem);
+    });
+  });
+};
 
 /**
  * Respond with text/html.
