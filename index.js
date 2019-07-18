@@ -479,7 +479,7 @@ ServeIndex.prototype.load = function(icon) {
  * @api private
  */
 ServeIndex.prototype.normalizeSlashes = function(path) {
-  return path.split(this.pathLib.sep).join('/');
+  return path.split(nativePathLib.sep).join('/');
 };
 
 /**
