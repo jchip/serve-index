@@ -34,6 +34,8 @@ var nativePathLib = require('path');
 
 module.exports = serveIndex;
 
+module.exports.ServeIndex = ServeIndex;
+
 /*!
  * Icon cache.
  */
@@ -79,7 +81,7 @@ var mediaType = {
  * @public
  */
 
-function serveIndex(root, options) {
+function ServeIndex(root, options) {
   var opts = options || {};
 
   // root required
@@ -101,7 +103,13 @@ function serveIndex(root, options) {
   this.filesystem = opts.fs || fs;
 }
 
-serveIndex.prototype.indexServer = function(req, res, next) {
+function serveIndex(root, options) {
+  var instance = new ServeIndex(root, options);
+
+  return instance.serve.bind(instance);
+}
+
+ServeIndex.prototype.serve = function serve(req, res, next) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.statusCode = 'OPTIONS' === req.method ? 200 : 405;
     res.setHeader('Allow', 'GET, HEAD, OPTIONS');
@@ -170,12 +178,12 @@ serveIndex.prototype.indexServer = function(req, res, next) {
       (serveIndex[media] || _self[media]).call(handlerContext, req, res, files, next, originalDir, showUp, _self.showIcons, path, _self.view, _self.template, _self.stylesheet, _self.filesystem);
     });
   });
-}
+};
 
 /**
  * Respond with text/html.
  */
-serveIndex.prototype.html = function(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
+ServeIndex.prototype.html = function(req, res, files, next, dir, showUp, displayIcons, path, view, template, stylesheet, filesystem) {
   var render = typeof template !== 'function'
     ? this.createHtmlRender(template)
     : template
@@ -223,14 +231,14 @@ serveIndex.prototype.html = function(req, res, files, next, dir, showUp, display
 /**
  * Respond with application/json.
  */
-serveIndex.prototype.json = function(req, res, files) {
+ServeIndex.prototype.json = function(req, res, files) {
   this.send(res, 'application/json', JSON.stringify(files))
 };
 
 /**
  * Respond with text/plain.
  */
-serveIndex.prototype.plain = function(req, res, files) {
+ServeIndex.prototype.plain = function(req, res, files) {
   this.send(res, 'text/plain', (files.join('\n') + '\n'))
 };
 
@@ -238,7 +246,7 @@ serveIndex.prototype.plain = function(req, res, files) {
  * Map html `files`, returning an html unordered list.
  * @private
  */
-serveIndex.prototype.createHtmlFileList = function(files, dir, useIcons, view) {
+ServeIndex.prototype.createHtmlFileList = function(files, dir, useIcons, view) {
   var _self = this;
   var html = '<ul id="files" class="view-' + escapeHtml(view) + '">'
     + (view === 'details' ? (
@@ -298,7 +306,7 @@ serveIndex.prototype.createHtmlFileList = function(files, dir, useIcons, view) {
 /**
  * Create function to render html.
  */
-serveIndex.prototype.createHtmlRender = function(template) {
+ServeIndex.prototype.createHtmlRender = function(template) {
   var _self = this;
   return function render(locals, callback) {
     // read template
@@ -319,7 +327,7 @@ serveIndex.prototype.createHtmlRender = function(template) {
 /**
  * Sort function for with directories first.
  */
-serveIndex.prototype.fileSort = function(a, b) {
+ServeIndex.prototype.fileSort = function(a, b) {
   // sort ".." to the top
   if (a.name === '..' || b.name === '..') {
     return a.name === b.name ? 0
@@ -333,7 +341,7 @@ serveIndex.prototype.fileSort = function(a, b) {
 /**
  * Map html `dir`, returning a linked path.
  */
-serveIndex.prototype.htmlPath = function(dir) {
+ServeIndex.prototype.htmlPath = function(dir) {
   var parts = dir.split('/');
   var crumb = new Array(parts.length);
 
@@ -352,7 +360,7 @@ serveIndex.prototype.htmlPath = function(dir) {
 /**
  * Get the icon data for the file name.
  */
-serveIndex.prototype.iconLookup = function(filename) {
+ServeIndex.prototype.iconLookup = function(filename) {
   var ext = this.pathLib.extname(filename);
 
   // try by extension
@@ -409,7 +417,7 @@ serveIndex.prototype.iconLookup = function(filename) {
 /**
  * Load icon images, return css string.
  */
-serveIndex.prototype.iconStyle = function(files, useIcons) {
+ServeIndex.prototype.iconStyle = function(files, useIcons) {
   if (!useIcons) return '';
   var i;
   var list = [];
@@ -455,7 +463,7 @@ serveIndex.prototype.iconStyle = function(files, useIcons) {
  * @return {String}
  * @api private
  */
-serveIndex.prototype.load = function(icon) {
+ServeIndex.prototype.load = function(icon) {
   if (cache[icon]) return cache[icon];
   return cache[icon] = fs.readFileSync(__dirname + '/public/icons/' + icon, 'base64');
 }
@@ -468,8 +476,8 @@ serveIndex.prototype.load = function(icon) {
  * @return {String}
  * @api private
  */
-serveIndex.prototype.normalizeSlashes = function(path) {
-  return path.split(this.pathLib.sep).join('/');
+ServeIndex.prototype.normalizeSlashes = function(path) {
+  return path.split(nativePathLib.sep).join('/');
 };
 
 /**
@@ -480,7 +488,7 @@ serveIndex.prototype.normalizeSlashes = function(path) {
  * @return {Array}
  * @api private
  */
-serveIndex.prototype.removeHidden = function(files) {
+ServeIndex.prototype.removeHidden = function(files) {
   return files.filter(function(file){
     return file[0] !== '.'
   });
@@ -490,7 +498,7 @@ serveIndex.prototype.removeHidden = function(files) {
  * Send a response.
  * @private
  */
-serveIndex.prototype.send = function(res, type, body) {
+ServeIndex.prototype.send = function(res, type, body) {
   // security header for content sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff')
 
@@ -506,7 +514,7 @@ serveIndex.prototype.send = function(res, type, body) {
  * Stat all files and return array of stat
  * in same order.
  */
-serveIndex.prototype.statFiles = function(dir, files, filesystem, cb) {
+ServeIndex.prototype.statFiles = function(dir, files, filesystem, cb) {
   var batch = new Batch();
   batch.concurrency(10);
 

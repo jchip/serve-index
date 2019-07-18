@@ -778,10 +778,10 @@ function alterProperty(obj, prop, val) {
 function createServer(dir, opts) {
   dir = dir || fixtures
 
-  var _serveIndex = new serveIndex(dir, opts)
+  var _serveIndex = serveIndex(dir, opts)
 
   return http.createServer(function (req, res) {
-    _serveIndex.indexServer(req, res, function (err) {
+    _serveIndex(req, res, function (err) {
       res.statusCode = err ? (err.status || 500) : 404
       res.end(err ? err.message : 'Not Found')
     })
